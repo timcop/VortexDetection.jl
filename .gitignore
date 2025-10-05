@@ -7,7 +7,7 @@
 Manifest.toml
 
 # Data files
-# *.jld2
+*.jld2
 *.h5
 *.dat
 
