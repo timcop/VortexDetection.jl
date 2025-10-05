@@ -1,4 +1,4 @@
-# VortexDetection3D.jl
+# VortexDetection.jl
 
 A Julia package for detecting and analyzing vortices in 3D systems.
 
@@ -13,8 +13,8 @@ Earlier versions may work but are not officially supported.
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/timcop/VortexDetection3D.jl.git
-cd VortexDetection3D.jl
+git clone https://github.com/timcop/VortexDetection.jl.git
+cd VortexDetection.jl
 ```
 
 2. Start Julia and activate the project:
