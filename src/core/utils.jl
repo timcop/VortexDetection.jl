@@ -651,14 +651,10 @@ function vortex_ccma_j(vort_lines_mat, vort_loops_mat, vort_rings_mat; distrib="
     @floop for (i, v_l) in enumerate(vort_lines_mat)
         try
             v_l_ccma = filter(ccma_inst, v_l, mode="fill_boundary", cc_mode=cc_mode)
-            # push!(vort_lines_ccma, v_l_ccma)
             vort_lines_ccma[i] = v_l_ccma
         catch err
-            println("Error at vort_lines: $i")
-        #     println("")
-        #     # println(err)
-        #     showerror(stdout, err, catch_backtrace())
-        #     # push!(vort_lines_ccma, v_l)
+            println("Error at vort_lines: $i, vortex length: $(length(v_l))")
+            println(err)
             vort_lines_ccma[i] = v_l
         end
     end
@@ -667,13 +663,10 @@ function vortex_ccma_j(vort_lines_mat, vort_loops_mat, vort_rings_mat; distrib="
     @floop for (i, v_l) in enumerate(vort_loops_mat)
         try
             v_l_ccma = filter(ccma_inst, v_l, mode="fill_boundary", cc_mode=cc_mode)
-            # push!(vort_loops_ccma, v_l_ccma)
             vort_loops_ccma[i] = v_l_ccma
-        catch
-            println("Error at vort_loops: $i")
-            println("")
-            # println(err)
-            # push!(vort_loops_ccma, v_l)
+        catch err
+            println("Error at vort_lines: $i, vortex length: $(length(v_l))")
+            println(err)
             vort_loops_ccma[i] = v_l
         end
     end
@@ -683,13 +676,10 @@ function vortex_ccma_j(vort_lines_mat, vort_loops_mat, vort_rings_mat; distrib="
     @floop for (i, v_l) in enumerate(vort_rings_mat)
         try
             v_l_ccma = filter(ccma_inst, v_l, mode="wrapping", cc_mode=cc_mode)
-            # push!(vort_rings_ccma, v_l_ccma)
             vort_rings_ccma[i] = v_l_ccma
-        catch
-            println("Error at vort_rings: $i")
-            println("")
-            # println(err)
-            # push!(vort_rings_ccma, v_l)
+        catch err
+            println("Error at vort_lines: $i, vortex length: $(length(v_l))")
+            println(err)
             vort_rings_ccma[i] = v_l
         end
     end
