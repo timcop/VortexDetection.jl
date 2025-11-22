@@ -32,13 +32,13 @@ dx = x[2] - x[1]; dy = y[2] - y[1]; dz = z[2] - z[1];
 
 ## Plot the isosurface before detection to look at the state
 fig, lscene = plot_iso(
-                psi, 
-                X, 
-                show_axis=true, 
-                isovalue=0.5, isorange=0.15, # Adjust isorange to change the thickness of the isosurface
-                is_128=false, # Hack for bug with 128 grid
-                visible=true # Set to false if you don't want to see the isosurface but want to keep the scene for later
-            )
+    psi, 
+    X, 
+    show_axis=true, 
+    isovalue=0.5, isorange=0.15, # Adjust isorange to change the thickness of the isosurface
+    is_128=false, # Hack for bug with 128 grid
+    visible=true # Set to false if you don't want to see the isosurface but want to keep the scene for later
+)
 fig
 
 ##
