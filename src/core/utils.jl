@@ -218,13 +218,8 @@ function vortex_coords(vorts_x, vorts_y, vorts_z, x, y, z)
     return vorts_coords
 end
 
-
-
-
-# src/core/utils.jl
 using Base.Threads
 
-# --- your original neighbour_vort (unchanged) ---
 function neighbour_vort(vorts, i, Δϕd, vorts_map_d, Δneighbour)
     v_idx = vorts[i]
     v_idx_i = v_idx .+ Δneighbour
@@ -383,130 +378,6 @@ function vortex_edge_list_threaded(Δϕx::AbstractArray{<:Real,3},
            vorts_x, vorts_y, vorts_z
 end
 
-
-# # -------------------------------
-# # OPTION B — FLoops (safer if you prefer it; still slower than A typically)
-# # -------------------------------
-using FLoops: @floop, @init, @reduce
-
-@inline function _append_merge!(a::Vector{T}, b::Vector{T}) where {T}
-    isempty(a) && return copy(b)  # avoid aliasing
-    isempty(b) && return a
-    append!(a, b); a
-end
-
-function vortex_edge_list_threaded_floops(Δϕx, Δϕy, Δϕz)
-    vorts_x = Tuple.(findall(Δϕx .> 0.0)) .|> collect
-    vorts_y = Tuple.(findall(Δϕy .> 0.0)) .|> collect
-    vorts_z = Tuple.(findall(Δϕz .> 0.0)) .|> collect
-
-    vorts_x_len = length(vorts_x)
-    vorts_y_len = length(vorts_y)
-    vorts_z_len = length(vorts_z)
-
-    vorts_x_map = Dict((vorts_x[i], i) for i in eachindex(vorts_x))
-    vorts_y_map = Dict((vorts_y[i], i + vorts_x_len) for i in eachindex(vorts_y))
-    vorts_z_map = Dict((vorts_z[i], i + vorts_x_len + vorts_y_len) for i in eachindex(vorts_z))
-
-    # X
-    @floop for i in eachindex(vorts_x)
-        @init edges_x  = Tuple{Int,Int}[];  @init edges_xp = Tuple{Int,Int}[]
-        @init local_x  = Tuple{Int,Int}[];  @init local_xp = Tuple{Int,Int}[]
-        @reduce edges_x  = _append_merge!(edges_x,  local_x)
-        @reduce edges_xp = _append_merge!(edges_xp, local_xp)
-
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_x, i, Δϕx, vorts_x_map, [-1, 0, 0])
-        is_neighbour && push!(is_periodic ? local_xp : local_x, (i, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_x, i, Δϕy, vorts_y_map, [0, 0, 0])
-        is_neighbour && push!(is_periodic ? local_xp : local_x, (i, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_x, i, Δϕy, vorts_y_map, [0, -1, 0])
-        is_neighbour && push!(is_periodic ? local_xp : local_x, (i, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_x, i, Δϕz, vorts_z_map, [0, 0, 0])
-        is_neighbour && push!(is_periodic ? local_xp : local_x, (i, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_x, i, Δϕz, vorts_z_map, [0, 0, -1])
-        is_neighbour && push!(is_periodic ? local_xp : local_x, (i, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_x, i, Δϕx, vorts_x_map, [1, 0, 0])
-        is_neighbour && push!(is_periodic ? local_xp : local_x, (i, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_x, i, Δϕy, vorts_y_map, [1, 0, 0])
-        is_neighbour && push!(is_periodic ? local_xp : local_x, (i, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_x, i, Δϕy, vorts_y_map, [1, -1, 0])
-        is_neighbour && push!(is_periodic ? local_xp : local_x, (i, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_x, i, Δϕz, vorts_z_map, [1, 0, 0])
-        is_neighbour && push!(is_periodic ? local_xp : local_x, (i, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_x, i, Δϕz, vorts_z_map, [1, 0, -1])
-        is_neighbour && push!(is_periodic ? local_xp : local_x, (i, v_idx))
-    end
-
-    # Y
-    @floop for i in eachindex(vorts_y)
-        @init edges_y  = Tuple{Int,Int}[];  @init edges_yp = Tuple{Int,Int}[]
-        @init local_y  = Tuple{Int,Int}[];  @init local_yp = Tuple{Int,Int}[]
-        @reduce edges_y  = _append_merge!(edges_y,  local_y)
-        @reduce edges_yp = _append_merge!(edges_yp, local_yp)
-
-        base = i + vorts_x_len
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_y, i, Δϕy, vorts_y_map, [0, -1, 0])
-        is_neighbour && push!(is_periodic ? local_yp : local_y, (base, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_y, i, Δϕz, vorts_z_map, [0, 0, 0])
-        is_neighbour && push!(is_periodic ? local_yp : local_y, (base, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_y, i, Δϕz, vorts_z_map, [0, 0, -1])
-        is_neighbour && push!(is_periodic ? local_yp : local_y, (base, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_y, i, Δϕx, vorts_x_map, [0, 0, 0])
-        is_neighbour && push!(is_periodic ? local_yp : local_y, (base, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_y, i, Δϕx, vorts_x_map, [-1, 0, 0])
-        is_neighbour && push!(is_periodic ? local_yp : local_y, (base, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_y, i, Δϕy, vorts_y_map, [0, 1, 0])
-        is_neighbour && push!(is_periodic ? local_yp : local_y, (base, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_y, i, Δϕz, vorts_z_map, [0, 1, 0])
-        is_neighbour && push!(is_periodic ? local_yp : local_y, (base, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_y, i, Δϕz, vorts_z_map, [0, 1, -1])
-        is_neighbour && push!(is_periodic ? local_yp : local_y, (base, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_y, i, Δϕx, vorts_x_map, [0, 1, 0])
-        is_neighbour && push!(is_periodic ? local_yp : local_y, (base, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_y, i, Δϕx, vorts_x_map, [-1, 1, 0])
-        is_neighbour && push!(is_periodic ? local_yp : local_y, (base, v_idx))
-    end
-
-    # Z
-    @floop for i in eachindex(vorts_z)
-        @init edges_z  = Tuple{Int,Int}[];  @init edges_zp = Tuple{Int,Int}[]
-        @init local_z  = Tuple{Int,Int}[];  @init local_zp = Tuple{Int,Int}[]
-        @reduce edges_z  = _append_merge!(edges_z,  local_z)
-        @reduce edges_zp = _append_merge!(edges_zp, local_zp)
-
-        base = i + vorts_x_len + vorts_y_len
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_z, i, Δϕz, vorts_z_map, [0, 0, -1])
-        is_neighbour && push!(is_periodic ? local_zp : local_z, (base, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_z, i, Δϕx, vorts_x_map, [0, 0, 0])
-        is_neighbour && push!(is_periodic ? local_zp : local_z, (base, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_z, i, Δϕx, vorts_x_map, [-1, 0, 0])
-        is_neighbour && push!(is_periodic ? local_zp : local_z, (base, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_z, i, Δϕy, vorts_y_map, [0, 0, 0])
-        is_neighbour && push!(is_periodic ? local_zp : local_z, (base, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_z, i, Δϕy, vorts_y_map, [0, -1, 0])
-        is_neighbour && push!(is_periodic ? local_zp : local_z, (base, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_z, i, Δϕz, vorts_z_map, [0, 0, 1])
-        is_neighbour && push!(is_periodic ? local_zp : local_z, (base, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_z, i, Δϕx, vorts_x_map, [0, 0, 1])
-        is_neighbour && push!(is_periodic ? local_zp : local_z, (base, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_z, i, Δϕx, vorts_x_map, [-1, 0, 1])
-        is_neighbour && push!(is_periodic ? local_zp : local_z, (base, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_z, i, Δϕy, vorts_y_map, [0, 0, 1])
-        is_neighbour && push!(is_periodic ? local_zp : local_z, (base, v_idx))
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_z, i, Δϕy, vorts_y_map, [0, -1, 1])
-        is_neighbour && push!(is_periodic ? local_zp : local_z, (base, v_idx))
-    end
-
-    return vcat(edges_x, edges_y, edges_z),
-           vcat(edges_xp, edges_yp, edges_zp),
-           vorts_x, vorts_y, vorts_z
-end
-
-
-
-
-
-
 function smooth_vortex_rings(vort_rings, max_itr=1)
     vort_rings_prev = deepcopy(vort_rings)
     vort_rings_next = deepcopy(vort_rings_prev)
@@ -557,7 +428,7 @@ function full_algorithm(psi, x, y, z; n_itp = 1)
     @time Δϕx, Δϕy, Δϕz = findvortices_planes_threaded(psi);
 
     print("Creating edge list:")
-    @time edge_list, edge_list_periodic, vorts_x, vorts_y, vorts_z = vortex_edge_list_threaded_floops(Δϕx, Δϕy, Δϕz);
+    @time edge_list, edge_list_periodic, vorts_x, vorts_y, vorts_z = vortex_edge_list_threaded(Δϕx, Δϕy, Δϕz);
     
     print("Creating graph:")
     @time g = SimpleGraph(Edge.(edge_list))
