@@ -6,6 +6,7 @@ A Julia package for detecting and analyzing vortices in 3D systems.
 
 This package has been tested and verified to work with:
 - Julia 1.10.4
+- Julia 1.12.1
 
 Earlier versions may work but are not officially supported.
 

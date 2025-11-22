@@ -218,6 +218,8 @@ function vortex_coords(vorts_x, vorts_y, vorts_z, x, y, z)
     return vorts_coords
 end
 
+using Base.Threads
+
 function neighbour_vort(vorts, i, Δϕd, vorts_map_d, Δneighbour)
     v_idx = vorts[i]
     v_idx_i = v_idx .+ Δneighbour
@@ -233,133 +235,147 @@ function neighbour_vort(vorts, i, Δϕd, vorts_map_d, Δneighbour)
     end
 end
 
-function vortex_edge_list_threaded(Δϕx, Δϕy, Δϕz)
-    vorts_x = Tuple.(findall(Δϕx .> 0.0)) .|> collect;
-    vorts_y = Tuple.(findall(Δϕy .> 0.0)) .|> collect;
-    vorts_z = Tuple.(findall(Δϕz .> 0.0)) .|> collect;
+function vortex_edge_list_threaded(Δϕx::AbstractArray{<:Real,3},
+                                   Δϕy::AbstractArray{<:Real,3},
+                                   Δϕz::AbstractArray{<:Real,3})
+    # Sites as tuples
+    vorts_x = collect(Tuple.(findall(Δϕx .> 0.0)))
+    vorts_y = collect(Tuple.(findall(Δϕy .> 0.0)))
+    vorts_z = collect(Tuple.(findall(Δϕz .> 0.0)))
 
-    vorts_x_len = length(vorts_x)
-    vorts_y_len = length(vorts_y)
-    vorts_z_len = length(vorts_z)
+    vx = length(vorts_x); vy = length(vorts_y); vz = length(vorts_z)
 
-    vorts_x_map = Dict((vorts_x[i], i) for i in eachindex(vorts_x))
-    vorts_y_map = Dict((vorts_y[i], i + vorts_x_len) for i in eachindex(vorts_y))
-    vorts_z_map = Dict((vorts_z[i], i + vorts_x_len + vorts_y_len) for i in eachindex(vorts_z))
+    # Dicts keyed by tuples
+    vorts_x_map = Dict((vorts_x[i], i)         for i in eachindex(vorts_x))
+    vorts_y_map = Dict((vorts_y[i], i + vx)    for i in eachindex(vorts_y))
+    vorts_z_map = Dict((vorts_z[i], i + vx+vy) for i in eachindex(vorts_z))
 
-    edge_list_x = [[] for _ in 1:Threads.nthreads()]
-    edge_list_periodic_x = [[] for _ in 1:Threads.nthreads()]
- 
-    @floop for i in eachindex(vorts_x)
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_x, i, Δϕx, vorts_x_map, [-1, 0, 0])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_x[Threads.threadid()], (i, v_idx)) : push!(edge_list_x[Threads.threadid()], (i, v_idx)))
+    nth_max = Threads.maxthreadid()
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_x, i, Δϕy, vorts_y_map, [0, 0, 0])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_x[Threads.threadid()], (i, v_idx)) : push!(edge_list_x[Threads.threadid()], (i, v_idx)))
+    edge_list_x           = [Vector{Tuple{Int,Int}}() for _ in 1:nth_max]
+    edge_list_periodic_x  = [Vector{Tuple{Int,Int}}() for _ in 1:nth_max]
+    edge_list_y           = [Vector{Tuple{Int,Int}}() for _ in 1:nth_max]
+    edge_list_periodic_y  = [Vector{Tuple{Int,Int}}() for _ in 1:nth_max]
+    edge_list_z           = [Vector{Tuple{Int,Int}}() for _ in 1:nth_max]
+    edge_list_periodic_z  = [Vector{Tuple{Int,Int}}() for _ in 1:nth_max]
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_x, i, Δϕy, vorts_y_map, [0, -1, 0])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_x[Threads.threadid()], (i, v_idx)) : push!(edge_list_x[Threads.threadid()], (i, v_idx)))
+    # ---------------- X ----------------
+    @threads :static for i in eachindex(vorts_x)
+        tid = threadid()
+        isN, isP, v = neighbour_vort(vorts_x, i, Δϕx, vorts_x_map, (-1, 0, 0))
+        isN && (isP ? push!(edge_list_periodic_x[tid], (i, v)) : push!(edge_list_x[tid], (i, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_x, i, Δϕz, vorts_z_map, [0, 0, 0])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_x[Threads.threadid()], (i, v_idx)) : push!(edge_list_x[Threads.threadid()], (i, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_x, i, Δϕy, vorts_y_map, ( 0, 0, 0))
+        isN && (isP ? push!(edge_list_periodic_x[tid], (i, v)) : push!(edge_list_x[tid], (i, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_x, i, Δϕz, vorts_z_map, [0, 0, -1])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_x[Threads.threadid()], (i, v_idx)) : push!(edge_list_x[Threads.threadid()], (i, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_x, i, Δϕy, vorts_y_map, ( 0,-1, 0))
+        isN && (isP ? push!(edge_list_periodic_x[tid], (i, v)) : push!(edge_list_x[tid], (i, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_x, i, Δϕx, vorts_x_map, [1, 0, 0])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_x[Threads.threadid()], (i, v_idx)) : push!(edge_list_x[Threads.threadid()], (i, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_x, i, Δϕz, vorts_z_map, ( 0, 0, 0))
+        isN && (isP ? push!(edge_list_periodic_x[tid], (i, v)) : push!(edge_list_x[tid], (i, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_x, i, Δϕy, vorts_y_map, [1, 0, 0])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_x[Threads.threadid()], (i, v_idx)) : push!(edge_list_x[Threads.threadid()], (i, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_x, i, Δϕz, vorts_z_map, ( 0, 0,-1))
+        isN && (isP ? push!(edge_list_periodic_x[tid], (i, v)) : push!(edge_list_x[tid], (i, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_x, i, Δϕy, vorts_y_map, [1, -1, 0])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_x[Threads.threadid()], (i, v_idx)) : push!(edge_list_x[Threads.threadid()], (i, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_x, i, Δϕx, vorts_x_map, ( 1, 0, 0))
+        isN && (isP ? push!(edge_list_periodic_x[tid], (i, v)) : push!(edge_list_x[tid], (i, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_x, i, Δϕz, vorts_z_map, [1, 0, 0])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_x[Threads.threadid()], (i, v_idx)) : push!(edge_list_x[Threads.threadid()], (i, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_x, i, Δϕy, vorts_y_map, ( 1, 0, 0))
+        isN && (isP ? push!(edge_list_periodic_x[tid], (i, v)) : push!(edge_list_x[tid], (i, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_x, i, Δϕz, vorts_z_map, [1, 0, -1])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_x[Threads.threadid()], (i, v_idx)) : push!(edge_list_x[Threads.threadid()], (i, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_x, i, Δϕy, vorts_y_map, ( 1,-1, 0))
+        isN && (isP ? push!(edge_list_periodic_x[tid], (i, v)) : push!(edge_list_x[tid], (i, v)))
+
+        isN, isP, v = neighbour_vort(vorts_x, i, Δϕz, vorts_z_map, ( 1, 0, 0))
+        isN && (isP ? push!(edge_list_periodic_x[tid], (i, v)) : push!(edge_list_x[tid], (i, v)))
+
+        isN, isP, v = neighbour_vort(vorts_x, i, Δϕz, vorts_z_map, ( 1, 0,-1))
+        isN && (isP ? push!(edge_list_periodic_x[tid], (i, v)) : push!(edge_list_x[tid], (i, v)))
     end
 
-    edge_list_y = [[] for _ in 1:Threads.nthreads()]
-    edge_list_periodic_y = [[] for _ in 1:Threads.nthreads()]
+    # ---------------- Y ----------------
+    @threads :static for i in eachindex(vorts_y)
+        tid = threadid()
+        base = i + vx
 
-    @floop for i in eachindex(vorts_y)
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_y, i, Δϕy, vorts_y_map, [0, -1, 0])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_y[Threads.threadid()], (i + vorts_x_len, v_idx)) : push!(edge_list_y[Threads.threadid()], (i + vorts_x_len, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_y, i, Δϕy, vorts_y_map, ( 0,-1, 0))
+        isN && (isP ? push!(edge_list_periodic_y[tid], (base, v)) : push!(edge_list_y[tid], (base, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_y, i, Δϕz, vorts_z_map, [0, 0, 0])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_y[Threads.threadid()], (i + vorts_x_len, v_idx)) : push!(edge_list_y[Threads.threadid()], (i + vorts_x_len, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_y, i, Δϕz, vorts_z_map, ( 0, 0, 0))
+        isN && (isP ? push!(edge_list_periodic_y[tid], (base, v)) : push!(edge_list_y[tid], (base, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_y, i, Δϕz, vorts_z_map, [0, 0, -1])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_y[Threads.threadid()], (i + vorts_x_len, v_idx)) : push!(edge_list_y[Threads.threadid()], (i + vorts_x_len, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_y, i, Δϕz, vorts_z_map, ( 0, 0,-1))
+        isN && (isP ? push!(edge_list_periodic_y[tid], (base, v)) : push!(edge_list_y[tid], (base, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_y, i, Δϕx, vorts_x_map, [0, 0, 0])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_y[Threads.threadid()], (i + vorts_x_len, v_idx)) : push!(edge_list_y[Threads.threadid()], (i + vorts_x_len, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_y, i, Δϕx, vorts_x_map, ( 0, 0, 0))
+        isN && (isP ? push!(edge_list_periodic_y[tid], (base, v)) : push!(edge_list_y[tid], (base, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_y, i, Δϕx, vorts_x_map, [-1, 0, 0])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_y[Threads.threadid()], (i + vorts_x_len, v_idx)) : push!(edge_list_y[Threads.threadid()], (i + vorts_x_len, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_y, i, Δϕx, vorts_x_map, (-1, 0, 0))
+        isN && (isP ? push!(edge_list_periodic_y[tid], (base, v)) : push!(edge_list_y[tid], (base, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_y, i, Δϕy, vorts_y_map, [0, 1, 0])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_y[Threads.threadid()], (i + vorts_x_len, v_idx)) : push!(edge_list_y[Threads.threadid()], (i + vorts_x_len, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_y, i, Δϕy, vorts_y_map, ( 0, 1, 0))
+        isN && (isP ? push!(edge_list_periodic_y[tid], (base, v)) : push!(edge_list_y[tid], (base, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_y, i, Δϕz, vorts_z_map, [0, 1, 0])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_y[Threads.threadid()], (i + vorts_x_len, v_idx)) : push!(edge_list_y[Threads.threadid()], (i + vorts_x_len, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_y, i, Δϕz, vorts_z_map, ( 0, 1, 0))
+        isN && (isP ? push!(edge_list_periodic_y[tid], (base, v)) : push!(edge_list_y[tid], (base, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_y, i, Δϕz, vorts_z_map, [0, 1, -1])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_y[Threads.threadid()], (i + vorts_x_len, v_idx)) : push!(edge_list_y[Threads.threadid()], (i + vorts_x_len, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_y, i, Δϕz, vorts_z_map, ( 0, 1,-1))
+        isN && (isP ? push!(edge_list_periodic_y[tid], (base, v)) : push!(edge_list_y[tid], (base, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_y, i, Δϕx, vorts_x_map, [0, 1, 0])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_y[Threads.threadid()], (i + vorts_x_len, v_idx)) : push!(edge_list_y[Threads.threadid()], (i + vorts_x_len, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_y, i, Δϕx, vorts_x_map, ( 0, 1, 0))
+        isN && (isP ? push!(edge_list_periodic_y[tid], (base, v)) : push!(edge_list_y[tid], (base, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_y, i, Δϕx, vorts_x_map, [-1, 1, 0])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_y[Threads.threadid()], (i + vorts_x_len, v_idx)) : push!(edge_list_y[Threads.threadid()], (i + vorts_x_len, v_idx)))
-
+        isN, isP, v = neighbour_vort(vorts_y, i, Δϕx, vorts_x_map, (-1, 1, 0))
+        isN && (isP ? push!(edge_list_periodic_y[tid], (base, v)) : push!(edge_list_y[tid], (base, v)))
     end
 
-    edge_list_z = [[] for _ in 1:Threads.nthreads()]
-    edge_list_periodic_z = [[] for _ in 1:Threads.nthreads()]
+    # ---------------- Z ----------------
+    @threads :static for i in eachindex(vorts_z)
+        tid = threadid()
+        base = i + vx + vy
 
-    @floop for i in eachindex(vorts_z)
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_z, i, Δϕz, vorts_z_map, [0, 0, -1])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_z[Threads.threadid()], (i + vorts_x_len + vorts_y_len, v_idx)) : push!(edge_list_z[Threads.threadid()], (i + vorts_x_len + vorts_y_len, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_z, i, Δϕz, vorts_z_map, ( 0, 0,-1))
+        isN && (isP ? push!(edge_list_periodic_z[tid], (base, v)) : push!(edge_list_z[tid], (base, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_z, i, Δϕx, vorts_x_map, [0, 0, 0])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_z[Threads.threadid()], (i + vorts_x_len + vorts_y_len, v_idx)) : push!(edge_list_z[Threads.threadid()], (i + vorts_x_len + vorts_y_len, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_z, i, Δϕx, vorts_x_map, ( 0, 0, 0))
+        isN && (isP ? push!(edge_list_periodic_z[tid], (base, v)) : push!(edge_list_z[tid], (base, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_z, i, Δϕx, vorts_x_map, [-1, 0, 0])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_z[Threads.threadid()], (i + vorts_x_len + vorts_y_len, v_idx)) : push!(edge_list_z[Threads.threadid()], (i + vorts_x_len + vorts_y_len, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_z, i, Δϕx, vorts_x_map, (-1, 0, 0))
+        isN && (isP ? push!(edge_list_periodic_z[tid], (base, v)) : push!(edge_list_z[tid], (base, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_z, i, Δϕy, vorts_y_map, [0, 0, 0])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_z[Threads.threadid()], (i + vorts_x_len + vorts_y_len, v_idx)) : push!(edge_list_z[Threads.threadid()], (i + vorts_x_len + vorts_y_len, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_z, i, Δϕy, vorts_y_map, ( 0, 0, 0))
+        isN && (isP ? push!(edge_list_periodic_z[tid], (base, v)) : push!(edge_list_z[tid], (base, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_z, i, Δϕy, vorts_y_map, [0, -1, 0])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_z[Threads.threadid()], (i + vorts_x_len + vorts_y_len, v_idx)) : push!(edge_list_z[Threads.threadid()], (i + vorts_x_len + vorts_y_len, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_z, i, Δϕy, vorts_y_map, ( 0,-1, 0))
+        isN && (isP ? push!(edge_list_periodic_z[tid], (base, v)) : push!(edge_list_z[tid], (base, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_z, i, Δϕz, vorts_z_map, [0, 0, 1])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_z[Threads.threadid()], (i + vorts_x_len + vorts_y_len, v_idx)) : push!(edge_list_z[Threads.threadid()], (i + vorts_x_len + vorts_y_len, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_z, i, Δϕz, vorts_z_map, ( 0, 0, 1))
+        isN && (isP ? push!(edge_list_periodic_z[tid], (base, v)) : push!(edge_list_z[tid], (base, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_z, i, Δϕx, vorts_x_map, [0, 0, 1])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_z[Threads.threadid()], (i + vorts_x_len + vorts_y_len, v_idx)) : push!(edge_list_z[Threads.threadid()], (i + vorts_x_len + vorts_y_len, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_z, i, Δϕx, vorts_x_map, ( 0, 0, 1))
+        isN && (isP ? push!(edge_list_periodic_z[tid], (base, v)) : push!(edge_list_z[tid], (base, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_z, i, Δϕx, vorts_x_map, [-1, 0, 1])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_z[Threads.threadid()], (i + vorts_x_len + vorts_y_len, v_idx)) : push!(edge_list_z[Threads.threadid()], (i + vorts_x_len + vorts_y_len, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_z, i, Δϕx, vorts_x_map, (-1, 0, 1))
+        isN && (isP ? push!(edge_list_periodic_z[tid], (base, v)) : push!(edge_list_z[tid], (base, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_z, i, Δϕy, vorts_y_map, [0, 0, 1])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_z[Threads.threadid()], (i + vorts_x_len + vorts_y_len, v_idx)) : push!(edge_list_z[Threads.threadid()], (i + vorts_x_len + vorts_y_len, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_z, i, Δϕy, vorts_y_map, ( 0, 0, 1))
+        isN && (isP ? push!(edge_list_periodic_z[tid], (base, v)) : push!(edge_list_z[tid], (base, v)))
 
-        is_neighbour, is_periodic, v_idx = neighbour_vort(vorts_z, i, Δϕy, vorts_y_map, [0, -1, 1])
-        is_neighbour && (is_periodic ? push!(edge_list_periodic_z[Threads.threadid()], (i + vorts_x_len + vorts_y_len, v_idx)) : push!(edge_list_z[Threads.threadid()], (i + vorts_x_len + vorts_y_len, v_idx)))
+        isN, isP, v = neighbour_vort(vorts_z, i, Δϕy, vorts_y_map, ( 0,-1, 1))
+        isN && (isP ? push!(edge_list_periodic_z[tid], (base, v)) : push!(edge_list_z[tid], (base, v)))
     end
-    
-    edge_list_x = reduce(vcat, edge_list_x)
-    edge_list_y = reduce(vcat, edge_list_y)
-    edge_list_z = reduce(vcat, edge_list_z)
-    edge_list_periodic_x = reduce(vcat, edge_list_periodic_x)
-    edge_list_periodic_y = reduce(vcat, edge_list_periodic_y)
-    edge_list_periodic_z = reduce(vcat, edge_list_periodic_z)
 
-    return vcat(edge_list_x, edge_list_y, edge_list_z), vcat(edge_list_periodic_x, edge_list_periodic_y, edge_list_periodic_z), vorts_x, vorts_y, vorts_z
+    # Flatten
+    edge_list_x          = reduce(vcat, edge_list_x;          init=Tuple{Int,Int}[])
+    edge_list_y          = reduce(vcat, edge_list_y;          init=Tuple{Int,Int}[])
+    edge_list_z          = reduce(vcat, edge_list_z;          init=Tuple{Int,Int}[])
+    edge_list_periodic_x = reduce(vcat, edge_list_periodic_x; init=Tuple{Int,Int}[])
+    edge_list_periodic_y = reduce(vcat, edge_list_periodic_y; init=Tuple{Int,Int}[])
+    edge_list_periodic_z = reduce(vcat, edge_list_periodic_z; init=Tuple{Int,Int}[])
+
+    return vcat(edge_list_x, edge_list_y, edge_list_z),
+           vcat(edge_list_periodic_x, edge_list_periodic_y, edge_list_periodic_z),
+           vorts_x, vorts_y, vorts_z
 end
 
 function smooth_vortex_rings(vort_rings, max_itr=1)
@@ -635,14 +651,10 @@ function vortex_ccma_j(vort_lines_mat, vort_loops_mat, vort_rings_mat; distrib="
     @floop for (i, v_l) in enumerate(vort_lines_mat)
         try
             v_l_ccma = filter(ccma_inst, v_l, mode="fill_boundary", cc_mode=cc_mode)
-            # push!(vort_lines_ccma, v_l_ccma)
             vort_lines_ccma[i] = v_l_ccma
         catch err
-            println("Error at vort_lines: $i")
-        #     println("")
-        #     # println(err)
-        #     showerror(stdout, err, catch_backtrace())
-        #     # push!(vort_lines_ccma, v_l)
+            println("Error at vort_lines: $i, vortex length: $(length(v_l))")
+            println(err)
             vort_lines_ccma[i] = v_l
         end
     end
@@ -651,13 +663,10 @@ function vortex_ccma_j(vort_lines_mat, vort_loops_mat, vort_rings_mat; distrib="
     @floop for (i, v_l) in enumerate(vort_loops_mat)
         try
             v_l_ccma = filter(ccma_inst, v_l, mode="fill_boundary", cc_mode=cc_mode)
-            # push!(vort_loops_ccma, v_l_ccma)
             vort_loops_ccma[i] = v_l_ccma
-        catch
-            println("Error at vort_loops: $i")
-            println("")
-            # println(err)
-            # push!(vort_loops_ccma, v_l)
+        catch err
+            println("Error at vort_lines: $i, vortex length: $(length(v_l))")
+            println(err)
             vort_loops_ccma[i] = v_l
         end
     end
@@ -667,13 +676,10 @@ function vortex_ccma_j(vort_lines_mat, vort_loops_mat, vort_rings_mat; distrib="
     @floop for (i, v_l) in enumerate(vort_rings_mat)
         try
             v_l_ccma = filter(ccma_inst, v_l, mode="wrapping", cc_mode=cc_mode)
-            # push!(vort_rings_ccma, v_l_ccma)
             vort_rings_ccma[i] = v_l_ccma
-        catch
-            println("Error at vort_rings: $i")
-            println("")
-            # println(err)
-            # push!(vort_rings_ccma, v_l)
+        catch err
+            println("Error at vort_lines: $i, vortex length: $(length(v_l))")
+            println(err)
             vort_rings_ccma[i] = v_l
         end
     end
